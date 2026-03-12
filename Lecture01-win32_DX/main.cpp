@@ -3,22 +3,24 @@
  * windows.h: 창 생성, 메시지 처리 등 Windows OS 기능을 쓰기 위한 필수 헤더
  */
 
-#pragma comment(linker, "/entry:WinMainCRTStartup /subsystem:console")
+#pragma comment(linker, "/entry:WinMainCRTStartup /subsystem:console")//cmd창 링커에 디버깅용이하게 띄우라고알림.
 
 #include <windows.h>
 #include <d3d11.h>
-#include <d3dcompiler.h>
+#include <d3dcompiler.h>//우리가 짠 코드가 gpu에서 돌아가게 컴파일함.
 
  // 라이브러리 링크
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
+#pragma comment(lib, "d3dcompiler.lib")//우리가 짠 코드가 gpu에서 돌아가게 컴파일함.
 
 // 전역 변수 (간결한 예제를 위해 사용)
 ID3D11Device * g_pd3dDevice = nullptr;                  //모든 리소스의 생성을 담당하는 핵심 객체임. 하드웨어(GPU)와의 통로 역할을 하며, 실질적으로 메모리를 할당하는 기능을 가짐.
-ID3D11DeviceContext* g_pImmediateContext = nullptr;     //생성된 리소스를 사용하여 GPU에 그리기 명령(Rendering Commands)을 내리는 객체임. 파이프라인의 상태를 설정하고 실제로 "그려라(Draw)"라고 지시함.
+ID3D11DeviceContext* g_pImmediateContext = nullptr;     //생성된 리소스를 사용하여 GPU에 그리기 명령(Rendering Commands)을 내리는 객체임. 파이프라인의 상태를 설정하고 실제로 "그려라(Draw)"라고 지시함. ex) ls나 cd처럼 gpu용 명령어 있는곳. immediate 라는 키워드 말고도 다른 거 있으니 찾아보기.
 IDXGISwapChain* g_pSwapChain = nullptr;                 //그려진 그림을 모니터 화면으로 전달하고 관리하는 시스템임. 더블 버퍼링(Double Buffering) 기술의 실체라고 보면 됨.
 ID3D11RenderTargetView* g_pRenderTargetView = nullptr;  //GPU가 결과물을 써 내려갈 대상(Target)을 정의하는 '뷰(View)' 객체임. DX11에서는 리소스(Texture2D)를 직접 파이프라인에 꽂지 않음. 대신 그 리소스를 어떤 용도(렌더 타겟용, 셰이더 읽기용 등)로 쓸 것인지 정의하는 'View'를 통해 접근함.
+
+
 
 // 정점 구조체
 struct Vertex {
@@ -37,7 +39,7 @@ PS_INPUT VS(VS_INPUT input) {
     return output;
 }
 float4 PS(PS_INPUT input) : SV_Target { return input.col; }
-)";
+)";//ps와 vs: vertex와 pixel쉐이더
 
 /*
  * [이론 설명: 윈도우 프로시저 (WndProc)]
@@ -79,7 +81,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     sd.BufferDesc.Height = 600;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow = hWnd; // 생성한 Win32 창 핸들 연결
+    sd.OutputWindow = hWnd; // 생성한 Win32 창 핸들 연결 hWnd= handle Window 윈도를 조종하는 핸들
     sd.SampleDesc.Count = 1;
     sd.Windowed = TRUE;
 
@@ -105,8 +107,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Input Layout
     D3D11_INPUT_ELEMENT_DESC layout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    };
+        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },//12인 이유: 4개가 들어가니까.
+    };//포지션, 컬러순서대로.
     ID3D11InputLayout* pInputLayout;
     g_pd3dDevice->CreateInputLayout(layout, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &pInputLayout);
 
@@ -115,41 +117,41 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         {  0.0f,  0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f },
         {  0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f },
         { -0.5f, -0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f },
-    };
+    };//포지션, 컬러순서대로넣어야함. 아까 그렇게 설정했으므로.
     ID3D11Buffer* pVBuffer;
     D3D11_BUFFER_DESC bd = { sizeof(vertices), D3D11_USAGE_DEFAULT, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0 };
     D3D11_SUBRESOURCE_DATA initData = { vertices, 0, 0 };
-    g_pd3dDevice->CreateBuffer(&bd, &initData, &pVBuffer);
+    g_pd3dDevice->CreateBuffer(&bd, &initData, &pVBuffer);//GPU에 생성하는 부분
 
     // [이론 설명: 메시지 루프]
     // GetMessage는 메시지가 올 때까지 대기(Wait)하지만, 
     // 게임은 메시지가 없어도 계속 그려야 하므로 PeekMessage를 사용하여 Non-blocking으로 처리함.
     MSG msg = { 0 };
     while (WM_QUIT != msg.message) {
-        if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {//아까와 다르게 입력없이도 계속실행되어야하므로 get아니라 peek.
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
         else {
             // --- 렌더링 시작 ---
             float clearColor[] = { 0.1f, 0.2f, 0.3f, 1.0f };
-            g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, clearColor);
+            g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, clearColor);//백버퍼 지우기
 
             g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
-            D3D11_VIEWPORT vp = { 0, 0, 800, 600, 0.0f, 1.0f };
+            D3D11_VIEWPORT vp = { 0, 0, 800, 600, 0.0f, 1.0f };//800 600사이즈로 백버퍼사이즈를 정하겠다
             g_pImmediateContext->RSSetViewports(1, &vp);
 
             g_pImmediateContext->IASetInputLayout(pInputLayout);
             UINT stride = sizeof(Vertex), offset = 0;
             g_pImmediateContext->IASetVertexBuffers(0, 1, &pVBuffer, &stride, &offset);
-            g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);//triangle list,pan,...strip...etc
 
             g_pImmediateContext->VSSetShader(vShader, nullptr, 0);
             g_pImmediateContext->PSSetShader(pShader, nullptr, 0);
 
             g_pImmediateContext->Draw(3, 0);
-            g_pSwapChain->Present(0, 0);
-        }
+            g_pSwapChain->Present(0, 0);//백버퍼랑 프론트랑 스왑시켜라
+        }//결과적으로 매 프레임마다 삼각형으로 그리고 스왑시킴.
     }
 
     // 자원 해제

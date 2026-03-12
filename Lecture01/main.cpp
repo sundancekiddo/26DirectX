@@ -16,7 +16,7 @@
 
 // 1. 윈도우 메시지 처리 함수 (Window Procedure)
 // 사용자 입력(키보드, 마우스)이나 시스템 이벤트를 처리하는 핵심 콜백 함수임.
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)//CALLBACK 키워드는 밑의 APIENTRY와 달리 반드시 콜백함수에만써야하는.
 {
     switch (message)
     {
