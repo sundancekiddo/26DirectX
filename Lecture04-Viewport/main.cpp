@@ -201,6 +201,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             // 다 그려진 백버퍼(g_Config 크기)를 실제 윈도우 창으로 전송함.
             // 윈도우 창 크기와 백버퍼 크기가 다르면 여기서 '강제 스케일링'이 발생하여 화질이 깨짐.
             g_pSwapChain->Present(0, 0);
+
+            /* Present(a,b)
+            * 첫 번째 인자 (a): SyncInterval (V-Sync 설정)
+            *      - 0:     즉시 출력. 모니터가 화면을 갱신하든 말든 상관없이 다 그렸으면 바로 화면을 교체함. (FPS가 무제한으로 올라가며 화면 찢어짐 발생 가능)
+            *      - 1~4:   수직 동기화(V-Sync) 활성화. 
+            *               1은 모니터 주사율(60Hz 등)에 맞춰서 기다렸다가 화면 스왑.
+            *               2/3/4 는 모니터가 화면을 2/3/4번 그릴 때마다 스왑
+            * 두 번째 인자 (b): Flags (출력 옵션)
+            *      - 0:                         일반적인 출력임.
+            *        DXGI_PRESENT_TEST:         실제로 화면을 바꾸지는 않고, 장치가 준비되었는지 테스트만 할 때 씀.
+            *        DXGI_PRESENT_DO_NOT_WAIT:  만약 GPU가 이전 프레임을 처리하느라 바쁘면 기다리지 않고 바로 에러를 뱉게 함.
+            */
         }
     }
 
