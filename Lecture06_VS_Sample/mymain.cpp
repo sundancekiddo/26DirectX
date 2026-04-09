@@ -31,7 +31,7 @@
 
 
 // [실습 예제용 구조]
-cbuffer MoveBuffer : register(b0) // 0번 상수 버퍼 입구에서 대기
+cbuffer MoveBuffer : register(b0) // 0번 상수 버퍼 입구에서 대기->b0) 0번 버퍼에서 데이터를 보낼거다 VSSetConstantBuffers
 {
     float2 g_Offset;  // x, y 축으로 얼만큼 이동할지 (8바이트)
     float2 g_Padding; // 16바이트 규격을 맞추기 위한 빈 공간 (8바이트)
@@ -163,11 +163,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             
             // 입력받은 정점 위치에 오프셋을 더함 (이동 처리)
             float3 finalPos = input.pos;
-            finalPos.x += g_Offset.x;
-            finalPos.y += g_Offset.y;
-
+            float3 inputPos = input.pos;
+            //finalPos.x += g_Offset.x;
+            //finalPos.y += g_Offset.y;
+            float s,c;
+            sincos(g_Offset.x,s,c);
+            float rotatedX=inputPos.x*c-inputPos.y*s;
+            float rotatedY=inputPos.x*s+inputPos.y*c;
+            finalPos.x=rotatedX;
+            finalPos.y=rotatedY;
             output.pos = float4(finalPos, 1.0f);
-            output.col = input.col;
+            //output.col = input.col; //원래 색상
+            float PI=3.1415192f;
+            float PI2=6.283185f;
+            float PI4=12.56637f;
+            float angle=g_Offset.x;
+            float brightness;
+            float cycle = fmod(abs(angle), PI4);
+            if(cycle<PI2){brightness=cycle/PI2;}
+            else{brightness=(PI4-cycle)/PI2;}
+
+            output.col = float4(brightness,brightness,brightness,1.0f);
             return output;
         }
 
@@ -213,11 +229,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
         else {
             // [방향키 입력 처리]
-            float moveSpeed = 0.005f;
+            float moveSpeed = 0.05f;
             if (GetAsyncKeyState(VK_LEFT))  g_CurOffset.x -= moveSpeed;
             if (GetAsyncKeyState(VK_RIGHT)) g_CurOffset.x += moveSpeed;
-            if (GetAsyncKeyState(VK_UP))    g_CurOffset.y += moveSpeed;
-            if (GetAsyncKeyState(VK_DOWN))  g_CurOffset.y -= moveSpeed;
+            //if (GetAsyncKeyState(VK_UP))    g_CurOffset.y += moveSpeed;
+            //if (GetAsyncKeyState(VK_DOWN))  g_CurOffset.y -= moveSpeed;
+            float PI2 = 6.283185f;
+            if (g_CurOffset.x > PI2)g_CurOffset.x -= PI2;
+            if (g_CurOffset.x < 0.0f)g_CurOffset.x += PI2;
 
             if (GetAsyncKeyState('1') & 0x0001) { g_Config.Width = 800; g_Config.Height = 600; g_Config.NeedsResize = true; }
             if (GetAsyncKeyState('2') & 0x0001) { g_Config.Width = 1280; g_Config.Height = 720; g_Config.NeedsResize = true; }
