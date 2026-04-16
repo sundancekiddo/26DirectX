@@ -70,7 +70,7 @@ public:
             chrono::duration<float> elapsed = currentTime - prevTime;
             float dt = elapsed.count();
             prevTime = currentTime;
-
+            
             // 1. Start 호출 체크 (지연 초기화)
             for (int i = 0; i < (int)gameWorld.size(); i++) {
                 GameObject* go = gameWorld[i];
