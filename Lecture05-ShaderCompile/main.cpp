@@ -100,14 +100,17 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     // [테스트할 방식 하나만 주석 해제하셈]
 
     // 방식 1: 스트링 컴파일
-    CompileShader(g_szShaderCode, false, "VS", "vs_4_0", &vsBlob);
-    CompileShader(g_szShaderCode, false, "PS", "ps_4_0", &psBlob);
+    //CompileShader(g_szShaderCode, false, "VS", "vs_4_0", &vsBlob);
+    //CompileShader(g_szShaderCode, false, "PS", "ps_4_0", &psBlob);
 
-    /* // 방식 2: 외부 통합 파일 (.hlsl) - 파일이 있어야 작동함
-    CompileShader(L"Shader.hlsl", true, "VS", "vs_4_0", &vsBlob);
-    CompileShader(L"Shader.hlsl", true, "PS", "ps_4_0", &psBlob);
-    */
+    // 방식 2: 별도 파일 (.hlsl) - 파일이 있어야 작동함
+    //CompileShader(L"VS.hlsl", true, "main", "vs_4_0", &vsBlob);
+    //CompileShader(L"PS.hlsl", true, "main", "ps_4_0", &psBlob);
 
+    // 방식 3: 외부 통합 파일 (.fx) - 파일이 있어야 작동함
+    CompileShader(L"Basic.fx", true, "VS", "vs_4_0", &vsBlob);
+    CompileShader(L"Basic.fx", true, "PS", "ps_4_0", &psBlob);
+    
     g_pd3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &g_pVertexShader);
     g_pd3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &g_pPixelShader);
 
