@@ -34,6 +34,47 @@ struct ConstantBuffer
     XMMATRIX matWorld;
 };
 
+class VideoSystem {
+private:
+    static VideoSystem* m_pInstance;
+
+    VideoSystem() : m_hWnd(nullptr), m_pDevice(nullptr), m_pContext(nullptr) {
+    }
+
+    VideoSystem(const VideoSystem&) = delete;
+    VideoSystem& operator=(const VideoSystem&) = delete;
+
+    HWND m_hWnd;
+    ID3D11Device* m_pDevice;
+    ID3D11DeviceContext* m_pContext;
+
+public:
+    static VideoSystem* GetInstance() {
+        if (m_pInstance == nullptr) {
+            m_pInstance = new VideoSystem();
+        }
+        return m_pInstance;
+    }
+
+    void Initialize(HWND hwnd, ID3D11Device* dev, ID3D11DeviceContext* ctx) {
+        m_hWnd = hwnd;
+        m_pDevice = dev;
+        m_pContext = ctx;
+    }
+
+    HWND GetHWND() const { return m_hWnd; }
+    ID3D11Device* GetDevice() const { return m_pDevice; }
+    ID3D11DeviceContext* GetContext() const { return m_pContext; }
+
+    static void Release() {
+        if (m_pInstance) {
+            delete m_pInstance;
+            m_pInstance = nullptr;
+        }
+    }
+};
+
+VideoSystem* VideoSystem::m_pInstance = nullptr;
 
 class DeltaTime
 {
@@ -86,14 +127,18 @@ public:
 
         RECT rc = { 0, 0, w, h };
         AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-
         hWnd = CreateWindow(L"DX11Engine", windowName, WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
             NULL, NULL, hInst, NULL);
+        
+        //Singleton
+        hWnd = VideoSystem::GetInstance()->GetHWND();
 
         if (!hWnd) return false;
 
+        //Singleton
         ShowWindow(hWnd, SW_SHOW);
+        //ShowWindow(VideoSystem::GetInstance()->GetHWND(), SW_SHOW);
         return true;
     }
 };
@@ -116,6 +161,10 @@ public:
         sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         sd.OutputWindow = hWnd; sd.SampleDesc.Count = 1; sd.Windowed = TRUE;
+
+        //Singleton
+        Device = VideoSystem::GetInstance()->GetDevice();
+        ImmediateContext = VideoSystem::GetInstance()->GetContext();
 
         HRESULT hr = D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, NULL, 0,
             D3D11_SDK_VERSION, &sd, &SwapChain, &Device, NULL, &ImmediateContext);
@@ -545,7 +594,21 @@ LRESULT CALLBACK GlobalWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
 
 int WINAPI WinMain(HINSTANCE hI, HINSTANCE, LPSTR, int nS)
 {
+    // Singleton
+    VideoSystem* vs = nullptr;
+    vs = vs->GetInstance();
+    LPCWSTR windowName = L"DX11 Component Engine";
+
+    RECT rc = { 0, 0, w, h };
+
+    HWND hWnd = CreateWindow(L"DX11Engine", windowName, WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
+        NULL, NULL, hInst, NULL);
+    vs->Initialize();
+
+
     GameLoop gEngine;
+
     gEngine.Initialize(hI, GlobalWndProc);
 
     std::string triShader = R"(
