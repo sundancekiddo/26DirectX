@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Shader">
+      <UniqueIdentifier>{08377b97-107e-4fee-a263-2c5cafa815b0}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Lecture06.cpp">
@@ -25,5 +28,6 @@
   <ItemGroup>
     <FxCompile Include="constantBuffer.hlsl" />
     <FxCompile Include="ps.hlsl" />
+    <FxCompile Include="Shader.hlsl" />
   </ItemGroup>
 </Project>
