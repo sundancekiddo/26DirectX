@@ -9,6 +9,79 @@
 ================================================================================
 */
 
+/*
+ * [강의 1: 셰이더 컴파일과 재활용 - "요리법은 한 번만 읽어라"]
+ *
+ * 1. 런타임 컴파일 (D3DCompile):
+ *    - 프로그램 실행 중에 .hlsl 소스 코드를 읽어 GPU 기계어로 바꾸는 과정.
+ *    - 매우 무거운 작업이므로, 매 프레임 호출하면 게임이 멈춤(Stuttering).
+ *
+ * 2. 리소스 캐싱 (Caching):
+ *    - 한 번 컴파일된 결과물(Blob)이나 Shader 객체는 메모리에 저장해두고 재사용함.
+ *    - "별이 100개라고 셰이더를 100번 굽지 않는다."
+ *
+ * 3. 공유 (Sharing):
+ *    - 동일한 소스 코드를 사용하는 객체들은 컴파일된 셰이더의 '포인터'만 나눠 가짐.
+ * 
+ * CompileAndCreate() 참조
+ * 
+ * --------------------------------------------------------------------------------------
+ * [강의 2: 컴파일된 파일(.CSO) - "미리 구워둔(pre-baked) 빵"]
+ *
+ * 1. HLSL (Source Code): 텍스트 파일. 읽기 쉽지만 실행 시 컴파일 비용 발생.
+ * 2. CSO (Compiled Shader Object): 바이너리 파일. GPU가 바로 이해할 수 있는 형태.
+ *
+ * [실무의 흐름]
+ * - 개발 단계: 코드 수정이 잦으므로 소스(.hlsl)를 직접 컴파일함.
+ * - 배포 단계: 빌드 시점에 미리 컴파일해서 .cso 파일만 배포함 (보안 및 속도 우위).
+ * - 코드: D3DReadFileToBlob()을 사용해 컴파일 과정 없이 즉시 리소스 생성 가능.
+ *
+ * --------------------------------------------------------------------------------------
+ * [강의 3: Mesh Renderer의 역할 - "접시와 서빙"]
+ *
+ * 1. 역할: '무엇을(Mesh)' '어떻게(Material)' 그릴지 결정하고 실행함.
+ * 2. 데이터 바인딩:
+ *    - 정점 버퍼(VB)를 슬롯에 꽂고, 상수 버퍼(CB)를 통해 월드 행렬을 전송함.
+ * 3. 렌더링 파이프라인 제어:
+ *    - IASetInputLayout, VSSetShader, PSSetShader 등을 호출하여 GPU의 상태를 설정함.
+ *    - "렌더러는 요리사가 아니라, 손님 앞에 요리를 내놓는 서빙 담당자다."
+ *
+ * --------------------------------------------------------------------------------------
+ * [강의 4: Material - "요리법(Shader)과 재료(Data)의 결합"]
+ *
+ * 1. 정의: 셰이더(코드) + 파라미터(데이터, 색상, 텍스처 등)의 묶음.
+ * 2. 왜 만드는가?:
+ *    - 셰이더 코드는 같지만 색깔만 다른 객체들을 효율적으로 관리하기 위함.
+ *    - 예: '별 셰이더'는 하나지만, '황금 머티리얼'과 '빨간 머티리얼'은 데이터만 다름.
+ * 3. 독립성: 렌더러가 셰이더의 세부 사항을 몰라도 머티리얼만 갈아 끼우면 모습이 바뀜.
+ *
+ * --------------------------------------------------------------------------------------
+ * [강의 5: 다형성(Polymorphism) - "표준화된 인터페이스"]
+ *
+ * 1. Base Material (추상 클래스): 모든 머티리얼이 지켜야 할 약속(Bind() 함수) 정의.
+ * 2. 상속 (ColorMaterial, TextureMaterial): 각자 필요한 데이터를 GPU 슬롯에 꽂음.
+ *
+ * [이득]
+ * - 확장성: 새로운 효과가 필요하면 기존 코드를 건드리지 않고 새로운 머티리얼 클래스만 추가.
+ * - 단순화: MeshRenderer는 부모 타입인 Material*만 들고 있으면 됨.
+ *   그게 색상용인지 텍스처용인지 몰라도 Bind()만 호출하면 알아서 그려짐.
+ * 
+ * --------------------------------------------------------------------------------------
+ * [강의 6: 소유권과 실행의 분리 - "누가 무엇을 들고 있는가?"]
+ * 
+ * 1. Mesh (Resource Owner): 
+ *    - 정점 버퍼(VB)를 소유함. 
+ *    - 자기 데이터의 크기와 개수를 알고 있음.
+ * 
+ * 2. Material (Resource Owner): 
+ *    - 셰이더(VS, PS)와 입력 레이아웃(IL)을 소유함. 
+ *    - 데이터를 어떻게 해석할지(Layout) 알고 있음.
+ * 
+ * 3. MeshRenderer (Executor): 
+ *    - Mesh와 Material을 인자로 받아 조립함.
+ *    - 소유권은 없으며, 매 프레임 GPU에게 "이걸로(Material) 이걸(Mesh) 그려라"라고 명령함. 
+ */
+
 #include <windows.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -35,29 +108,37 @@ struct ConstantBuffer
     XMMATRIX matWorld;
 };
 
-struct Mesh
-{
-    ID3D11Buffer* vBuffer;
-    ID3D11InputLayout* pInputLayout;
-    ID3D11VertexShader* pVS;
-    ID3D11PixelShader* pPS;
-    UINT vertexCount;
-    XMFLOAT4 color;
+/*
+ * [Mesh - "자기 몸은 자기가 만든다"]
+ * - Vertex Buffer는 메쉬의 물리적인 몸체다.
+ * - 메쉬는 정점 데이터를 받아서 GPU 메모리에 넣는 법을 스스로 알고 있어야 한다.
+ * - Create()는 로딩 시점에 단 한 번만 호출한다.
+ */
 
-    Mesh()
-        : vBuffer(NULL), pInputLayout(NULL), pVS(NULL), pPS(NULL), vertexCount(0)
+
+//기본 쉐이더 셋
+struct ShaderSet {
+    ID3D11VertexShader* vs = nullptr;
+    ID3D11PixelShader* ps = nullptr;
+    ID3D11InputLayout* layout = nullptr;
+
+    ShaderSet() = default;
+
+    // 생성자에서 초기화하기 편하게 추가
+    ShaderSet(ID3D11VertexShader* v, ID3D11PixelShader* p, ID3D11InputLayout* l)
+        : vs(v), ps(p), layout(l) 
     {
-        color = { 1, 1, 1, 1 };
     }
 
-    ~Mesh()
+    // * 소멸자에서 안전하게 해제
+    void Release() 
     {
-        if (vBuffer) vBuffer->Release();
-        if (pInputLayout) pInputLayout->Release();
-        if (pVS) pVS->Release();
-        if (pPS) pPS->Release();
+        if (vs)     { vs->Release(); vs = nullptr; }
+        if (ps)     { ps->Release(); ps = nullptr; }
+        if (layout) { layout->Release(); layout = nullptr; }
     }
 };
+
 
 class DeltaTime
 {
@@ -109,18 +190,14 @@ public:
 
         RECT rc = { 0, 0, w, h };
         AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+
         hWnd = CreateWindow(L"DX11Engine", windowName, WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
             NULL, NULL, hInst, NULL);
-        
-        //Singleton
-        hWnd = VideoSystem::GetInstance()->GetHWND();
 
         if (!hWnd) return false;
 
-        //Singleton
         ShowWindow(hWnd, SW_SHOW);
-        //ShowWindow(VideoSystem::GetInstance()->GetHWND(), SW_SHOW);
         return true;
     }
 };
@@ -143,10 +220,6 @@ public:
         sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         sd.OutputWindow = hWnd; sd.SampleDesc.Count = 1; sd.Windowed = TRUE;
-
-        //Singleton
-        Device = VideoSystem::GetInstance()->GetDevice();
-        ImmediateContext = VideoSystem::GetInstance()->GetContext();
 
         HRESULT hr = D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, NULL, 0,
             D3D11_SDK_VERSION, &sd, &SwapChain, &Device, NULL, &ImmediateContext);
@@ -183,6 +256,55 @@ public:
         D3DCompile(src.c_str(), src.length(), NULL, NULL, NULL, entry.c_str(), profile.c_str(), 0, 0, &blob, NULL);
         return blob;
     }
+
+    // 실제 컴파일 로직을 담당하는 내부 함수
+    ShaderSet CompileAndCreate(const void* source, size_t length, bool isFile, D3D11_INPUT_ELEMENT_DESC* ied, UINT iedCount)
+    {
+        ShaderSet res;
+        ID3DBlob* vsBlob = nullptr;
+        ID3DBlob* psBlob = nullptr;
+        ID3DBlob* errBlob = nullptr;
+
+        HRESULT hr;
+        if (isFile) 
+        {
+            // 파일에서 읽기
+            hr = D3DCompileFromFile((LPCWSTR)source, nullptr, nullptr, "VS", "vs_5_0", 0, 0, &vsBlob, &errBlob);
+            hr = D3DCompileFromFile((LPCWSTR)source, nullptr, nullptr, "PS", "ps_5_0", 0, 0, &psBlob, &errBlob);
+        }
+        else 
+        {
+            // 메모리(String)에서 읽기
+            hr = D3DCompile(source, length, nullptr, nullptr, nullptr, "VS", "vs_5_0", 0, 0, &vsBlob, &errBlob);
+            hr = D3DCompile(source, length, nullptr, nullptr, nullptr, "PS", "ps_5_0", 0, 0, &psBlob, &errBlob);
+        }
+
+        if (FAILED(hr)) 
+        {
+            if (errBlob) 
+            {
+                OutputDebugStringA((char*)errBlob->GetBufferPointer());
+                errBlob->Release();
+            }
+            return res;
+        }
+
+        // GPU 리소스 생성
+        Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &res.vs);
+        Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &res.ps);
+
+        // 매개변수로 받은 ied와 iedCount를 사용해서 레이아웃 생성!
+        if (vsBlob && ied)
+        {
+            Device->CreateInputLayout(ied, iedCount, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &res.layout);
+        }        
+
+        if (vsBlob) vsBlob->Release();
+        if (psBlob) psBlob->Release();
+
+        return res;
+    }
+
 
     ~GraphicsContext() {
         if (RTV)
@@ -278,20 +400,135 @@ public:
     }
 };
 
-class MeshRenderer : public Component
+struct Mesh
 {
-    Mesh* pMeshData = nullptr;
-    ID3D11Buffer* cBuffer = nullptr;
+public:
+    ID3D11Buffer* vBuffer;
+    UINT vertexCount;
+
+    Mesh()
+    {
+        vBuffer = nullptr;
+        vertexCount = 0;
+    }
+
+    ~Mesh()
+    {
+        if (vBuffer)
+        {
+            vBuffer->Release();
+            vBuffer = nullptr;
+        }
+    }
+
+    // [핵심] 외부에서 정점 벡터를 던져주면 스스로 GPU 버퍼를 생성함
+    void Create(GraphicsContext* gfx, const std::vector<Vertex>& vertices)
+    {
+        vertexCount = (UINT)vertices.size();
+
+        D3D11_BUFFER_DESC bd = { 0 };
+        bd.Usage = D3D11_USAGE_DEFAULT;
+        bd.ByteWidth = sizeof(Vertex) * vertexCount;
+        bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+        D3D11_SUBRESOURCE_DATA sd = { 0 };
+        sd.pSysMem = vertices.data();
+
+        gfx->Device->CreateBuffer(&bd, &sd, &vBuffer);
+    }
+};
+
+class Material {
+public:
+    ShaderSet shaders; // 모든 머티리얼은 셰이더를 가짐
+
+
+    Material(ShaderSet s) : shaders(s) {}
+    virtual ~Material() {}
+
+    // 이 머티리얼이 가진 셰이더와 파라미터를 GPU 슬롯에 꽂는 함수
+    virtual void Bind(ID3D11DeviceContext* context) = 0;
+};
+
+// 픽셀 셰이더에서 쓸 색상 상수 버퍼 구조체
+struct ColorBuffer 
+{
+    XMFLOAT4 tintColor;
+};
+
+class ColorMaterial : public Material {
 
 public:
-    MeshRenderer(Mesh* mesh) : Component(), pMeshData(mesh)
+
+    XMFLOAT4 color;
+    ID3D11Buffer* pColorBuffer = nullptr; // 색상 전송용 상수 버퍼
+
+
+    ColorMaterial(ShaderSet s, XMFLOAT4 col, ID3D11Device* device)
+        : Material(s), color(col)
     {
+        // 색상 정보를 담을 전용 상수 버퍼 생성 (b1 슬롯용)
+        D3D11_BUFFER_DESC cbd = { 0 };
+        cbd.Usage = D3D11_USAGE_DEFAULT;
+        cbd.ByteWidth = sizeof(ColorBuffer);
+        cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+        device->CreateBuffer(&cbd, nullptr, &pColorBuffer);
+    }
+
+    virtual ~ColorMaterial()
+    {
+        if (pColorBuffer) pColorBuffer->Release();
+    }
+
+    // 색상을 실시간으로 바꿀 수 있게 제공 (애니메이션용)
+    void SetColor(XMFLOAT4 col) { color = col; }
+
+    void Bind(ID3D11DeviceContext* context) override 
+    {
+        // 1. 셰이더 및 레이아웃 바인딩 (공통)
+        context->IASetInputLayout(shaders.layout);
+        context->VSSetShader(shaders.vs, nullptr, 0);
+        context->PSSetShader(shaders.ps, nullptr, 0);
+
+        // 2. 머티리얼 고유의 색상 데이터 업데이트 (b1 슬롯에 꽂기)
+        ColorBuffer cb = { color };
+        context->UpdateSubresource(pColorBuffer, 0, nullptr, &cb, 0, 0);
+
+        // Pixel Shader의 1번 슬롯(b1)에 색상 버퍼를 꽂음
+        context->PSSetConstantBuffers(1, 1, &pColorBuffer);
+    }
+};
+
+
+
+class MeshRenderer : public Component
+{
+public:
+    Mesh* pMeshData = nullptr;
+    ID3D11Buffer* cBuffer = nullptr;
+    Material* pMaterial; // 다형성(Polymorphism) 활용!
+
+    MeshRenderer(Mesh* mesh, Material* mat) : Component()
+    {
+        pMeshData = mesh;
+        pMaterial = mat;
+        cBuffer = nullptr;
+    }
+
+    MeshRenderer(Mesh* mesh)
+    {
+        
+        
     }
 
     ~MeshRenderer()
     {
-        if (cBuffer) cBuffer->Release();
-        if (pMeshData) delete pMeshData;
+        if (cBuffer)
+        {
+            cBuffer->Release();
+            cBuffer = nullptr;
+        }
     }
 
     void Start(GraphicsContext* gfx) override
@@ -306,23 +543,28 @@ public:
 
     void Render(GraphicsContext* gfx) override
     {
-        if (pMeshData == nullptr || pMeshData->vBuffer == nullptr) return;
+        if (!pMeshData || !pMaterial) return;
 
-        gfx->ImmediateContext->IASetInputLayout(pMeshData->pInputLayout);
-        gfx->ImmediateContext->VSSetShader(pMeshData->pVS, nullptr, 0);
-        gfx->ImmediateContext->PSSetShader(pMeshData->pPS, nullptr, 0);
+        // 1. 머티리얼 형님한테 "네가 알아서 셰이더랑 색상 다 꽂아라"라고 시킴
+        pMaterial->Bind(gfx->ImmediateContext);
 
+        // 2. World 변환 행렬 업데이트 (b0 슬롯 - 이건 객체마다 다르니 여기서 처리)
         float s = 1.0f / (pOwner->pos.z + 1.0f);
-        XMMATRIX world = XMMatrixScaling(s, s, s) * XMMatrixRotationZ(pOwner->rot.z) * XMMatrixTranslation(pOwner->pos.x, pOwner->pos.y, 0.0f);
+        XMMATRIX world = XMMatrixScaling(s * pOwner->scale.x, s * pOwner->scale.y, 1.0f) *
+            XMMatrixRotationZ(pOwner->rot.z) *
+            XMMatrixTranslation(pOwner->pos.x, pOwner->pos.y, 0.0f);
+
         ConstantBuffer cb;
         cb.matWorld = XMMatrixTranspose(world);
         gfx->ImmediateContext->UpdateSubresource(cBuffer, 0, nullptr, &cb, 0, 0);
+        gfx->ImmediateContext->VSSetConstantBuffers(0, 1, &cBuffer);
 
+        // 3. 그리기
         UINT stride = sizeof(Vertex), offset = 0;
         gfx->ImmediateContext->IASetVertexBuffers(0, 1, &pMeshData->vBuffer, &stride, &offset);
-        gfx->ImmediateContext->VSSetConstantBuffers(0, 1, &cBuffer);
         gfx->ImmediateContext->Draw(pMeshData->vertexCount, 0);
     }
+
     void Input() override {}
     void Update(float dt) override {}
 };
@@ -548,25 +790,12 @@ LRESULT CALLBACK GlobalWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
 
 int WINAPI WinMain(HINSTANCE hI, HINSTANCE, LPSTR, int nS)
 {
-    // Singleton
-    VideoSystem* vs = nullptr;
-    vs = vs->GetInstance();
-    LPCWSTR windowName = L"DX11 Component Engine";
-
-    RECT rc = { 0, 0, w, h };
-
-    HWND hWnd = CreateWindow(L"DX11Engine", windowName, WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
-        NULL, NULL, hInst, NULL);
-    vs->Initialize();
-
-
     GameLoop gEngine;
-
     gEngine.Initialize(hI, GlobalWndProc);
 
     std::string triShader = R"(
-        cbuffer cb0 : register(b0) { matrix matWorld; };
+        cbuffer cbWorld    : register(b0) { matrix matWorld; };
+        cbuffer cbMaterial : register(b1) { float4 tintColor; }; // 머티리얼 색상 추가!
 
         struct VS_IN { float3 pos : POSITION; float4 col : COLOR; };
         struct PS_IN { float4 pos : SV_POSITION; float4 col : COLOR; };
@@ -575,23 +804,20 @@ int WINAPI WinMain(HINSTANCE hI, HINSTANCE, LPSTR, int nS)
         {
             PS_IN output;
             output.pos = mul(float4(input.pos, 1.0f), matWorld);
-            output.col = input.col;
+            output.col = input.col; 
             return output;
         }
 
-        float4 PS(PS_IN input) : SV_Target { return input.col; }
+        // input.col(정점 색상) 무시하고 tintColor(머티리얼 색상)를 출력
+        float4 PS(PS_IN input) : SV_Target 
+        { 
+            return tintColor; 
+        }
     )";
-    ID3DBlob* vsBlob = gEngine.gfx.CompileShader(triShader, "VS", "vs_5_0");
-    ID3DBlob* psBlob = gEngine.gfx.CompileShader(triShader, "PS", "ps_5_0");
 
 
-    // ====================================================
-    //  황금별 (Player)
-    // ====================================================
-    Mesh* goldMesh = new Mesh();
-    goldMesh->color = { 1.0f, 0.85f, 0.0f, 1.0f }; // 황금색
-    goldMesh->vertexCount = 30;
 
+    //별그리기
     float outerR = 0.5f; float innerR = 0.2f;
     XMFLOAT3 p[10];
     for (int i = 0; i < 10; ++i)
@@ -614,89 +840,70 @@ int WINAPI WinMain(HINSTANCE hI, HINSTANCE, LPSTR, int nS)
     std::vector<Vertex> vGold;
     for (int i = 0; i < 10; i++)
     {
-        vGold.push_back({ {0,0,0}, goldMesh->color });
-        vGold.push_back({ p[i], goldMesh->color });
-        vGold.push_back({ p[(i + 1) % 10], goldMesh->color });
+        vGold.push_back({ {0,0,0}, { 0, 0, 0, 0 } });
+        vGold.push_back({ p[i], { 0, 0, 0, 0 } });
+        vGold.push_back({ p[(i + 1) % 10], { 0, 0, 0, 0 } });
     }
 
-    // 리소스 생성 (황금별용)
-    gEngine.gfx.Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), NULL, &goldMesh->pVS);
-    gEngine.gfx.Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), NULL, &goldMesh->pPS);
-
-    D3D11_BUFFER_DESC bd = { 0 };
-    bd.Usage = D3D11_USAGE_DEFAULT;
-    bd.ByteWidth = sizeof(Vertex) * (UINT)vGold.size();
-    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    D3D11_SUBRESOURCE_DATA sd = { vGold.data() };
-    gEngine.gfx.Device->CreateBuffer(&bd, &sd, &goldMesh->vBuffer);
-
-    D3D11_INPUT_ELEMENT_DESC ied[] = {
+    D3D11_INPUT_ELEMENT_DESC ied[] = 
+    {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
     };
-    gEngine.gfx.Device->CreateInputLayout(ied, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &goldMesh->pInputLayout);
+
+    Mesh* gMesh = new Mesh();
+    gMesh->vertexCount = 30;
+
+    gMesh->Create(&gEngine.gfx, vGold);
+
+    // 1. 셰이더 딱 한 번만 구워두기 (재사용!)
+    //ShaderSet starShaders = gEngine.gfx.CreateShaderFromMemory(triShader);
+    ShaderSet starShaders = gEngine.gfx.CompileAndCreate(triShader.c_str(), triShader.length(), false, ied, 2);
+
+    // 2. 머티리얼 딱 두 종류만 만들기 (붕어빵 틀)
+    ColorMaterial* goldMat = new ColorMaterial(starShaders, { 1, 0.8f, 0, 1 }, gEngine.gfx.Device);
+    ColorMaterial* redMat = new ColorMaterial(starShaders, { 1, 0, 0, 1 }, gEngine.gfx.Device);
 
 
-    // 황금별 객체 등록 (PlayerController 포함)
-    GameObject* gStar = new GameObject(0, 0, 0);
-    gStar->scale = { 0.5f, 0.5f, 1.0f };
-
-    gStar->AddComponent(new MeshRenderer(goldMesh));
-    gStar->AddComponent(new PlayerController());
-
-    gEngine.world.push_back(gStar);
-
-    // ====================================================
-    // 추가되는 랜덤 별 n개 (Background Stars)
-    // ====================================================
+    // 시드값 준비 (진짜 무작위성을 위해 하드웨어에서 값을 가져옴)
     std::random_device rd;
+
+    // 난수 엔진 생성 (gen) - "숫자를 마구 뿜어내는 기계"
     std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> disPos(-1.2f, 1.2f);
-    std::uniform_real_distribution<float> disCol(0.3f, 0.9f);
-    std::uniform_real_distribution<float> disScale(0.05f, 0.4f); // 최대 0.5 (화면 1/4)
 
-    int n = 20; // 추가할 별 개수
-    for (int k = 0; k < n; k++)
+    // 분포기 설정 (dis) - "뿜어져 나온 숫자를 0.0 ~ 1.0 사이로 골고루 펴주는 기계"
+    std::uniform_real_distribution<float> dis(0.0f, 1.0f);
+
+    // 실행 (dis(gen))
+    float randomValue = dis(gen); // "기계(gen)를 가동해서 결과물을 분포기(dis)에 통과시켜라"
+
+    // 3. 별들 생성 (데이터는 공유, 상태는 개별)
+    for (int i = 0; i < 20; i++) 
     {
-        Mesh* randMesh = new Mesh();
-        randMesh->color = { disCol(gen), disCol(gen), disCol(gen), 1.0f };
-        randMesh->vertexCount = 30;
+        GameObject* star = new GameObject(dis(gen), dis(gen), 0);
 
-        std::vector<Vertex> vRand;
-        for (int i = 0; i < 10; i++) {
-            vRand.push_back({ {0,0,0}, randMesh->color });
-            vRand.push_back({ p[i], randMesh->color });
-            vRand.push_back({ p[(i + 1) % 10], randMesh->color });
-        }
+        // 같은 셰이더를 쓰는 머티리얼을 컴포넌트에 장착
+        star->AddComponent(new MeshRenderer(gMesh, (i % 2 == 0) ? goldMat : redMat));
+        star->AddComponent(new PlayerController());
 
-        // 리소스 생성 (각 별마다 고유 색상 버퍼 생성)
-        gEngine.gfx.Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), NULL, &randMesh->pVS);
-        gEngine.gfx.Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), NULL, &randMesh->pPS);
-
-        gEngine.gfx.Device->CreateInputLayout(ied, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &randMesh->pInputLayout);
-
-        bd.ByteWidth = sizeof(Vertex) * (UINT)vRand.size();
-        sd.pSysMem = vRand.data();
-        gEngine.gfx.Device->CreateBuffer(&bd, &sd, &randMesh->vBuffer);
-
-        GameObject* bgStar = new GameObject(disPos(gen), disPos(gen), 0);
-        float s = disScale(gen);
-        bgStar->scale = { s, s, 1.0f };
-
-        // 1. 렌더러 추가
-        bgStar->AddComponent(new MeshRenderer(randMesh));
-
-        // [핵심 추가] 모든 랜덤 별에게도 컨트롤러를 달아줍니다!
-        // 이제 이 별들도 키보드 입력에 반응하며, 각자의 s 값에 따라 속도가 결정됩니다.
-        bgStar->AddComponent(new PlayerController());
-
-        gEngine.world.push_back(bgStar);
+        gEngine.world.push_back(star);
     }
 
-    vsBlob->Release(); psBlob->Release();
 
 
     gEngine.Run();
+
+
+    // [중요: 공유 리소스 수동 해제]
+    // 렌더러들이 이미 world 소멸 시점에 사라졌으므로, 이제 안전하게 리소스를 지울 수 있음.
+    if (goldMat) { delete goldMat; goldMat = nullptr; }
+    if (redMat) { delete redMat;  redMat = nullptr; }
+
+    // 셰이더 세트도 릴리즈 (이건 수동으로 Release 호출해줘야 함)
+    starShaders.Release();
+
+    // 메쉬 데이터 해제
+    if (gMesh) { delete gMesh; gMesh = nullptr; }
 
     return 0;
 }
