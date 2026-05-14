@@ -16,6 +16,12 @@
     <Filter Include="Shader">
       <UniqueIdentifier>{a4f5835d-e6ff-4f93-a328-244fcf892cc1}</UniqueIdentifier>
     </Filter>
+    <Filter Include="헤더 파일\Component">
+      <UniqueIdentifier>{79cf4d80-3e59-4813-abc9-f252c3129019}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="헤더 파일\GameObject">
+      <UniqueIdentifier>{c14376bb-de7d-41cd-9eec-d7dd9da3b872}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -44,11 +50,14 @@
     <ClInclude Include="ObjectBase.hpp">
       <Filter>헤더 파일</Filter>
     </ClInclude>
-    <ClInclude Include="MeshRenderer.hpp">
-      <Filter>헤더 파일</Filter>
-    </ClInclude>
     <ClInclude Include="GameLoop.hpp">
       <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshRenderer.hpp">
+      <Filter>헤더 파일\Component</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerControl.hpp">
+      <Filter>헤더 파일\Component</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
